@@ -1,0 +1,16 @@
+[Unit]
+Description=Automated system update and reporting via signal-cli
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/auto-update.sh
+# EnvironmentFile=-/etc/auto-update/config
+# User=root
+# Nice=10
+# IOSchedulingClass=best-effort
+# IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+# Sample configuration for auto-update.sh
+# Copy to /etc/auto-update/config or ./config/auto-update.conf and adjust values.
+
+# Signal settings
+# Number registered with signal-cli (sender)
+SIGNAL_NUMBER="+1234567890"
+# Comma-separated recipients (phone numbers or UUIDs)
+SIGNAL_RECIPIENTS="+1234567890,+1987654321"
+
+# Dry run (true/false) — simulate updates without making changes
+DRY_RUN="false"
+
+# Reboot automatically if required (true/false)
+REBOOT_IF_REQUIRED="true"
+
+# Custom log directory (optional)
+# LOG_DIR="/var/log/auto-update"

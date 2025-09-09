@@ -1,31 +1,7 @@
 #!/usr/bin/env bash
-# auto-update.sh: unattended system updates with Signal reporting (apt-only)
-#
-# What this does
-# - Updates the system via apt-get in a non-interactive way
-# - Builds a detailed summary (updated packages, still pending, problems, duration)
-# - Sends the summary via signal-cli to one or more recipients
-# - Optionally schedules a reboot if required by the system
-#
-# How to configure
-# - Optional config file: /etc/auto-update/config or ./config/auto-update.conf
-#   Variables:
-#     SIGNAL_NUMBER         sender number registered with signal-cli
-#     SIGNAL_RECIPIENTS     comma-separated recipients
-#     DRY_RUN               "true" to simulate without changes (no root required)
-#     REBOOT_IF_REQUIRED    "true" to reboot when /var/run/reboot-required exists
-#     LOG_DIR               log directory (default /var/log/auto-update)
-#     SIGNAL_LINUXUSER      the Linux user which can access signal-cli (used with su -c)
-# - Environment variables with the same names can also be exported before running.
-#
-# Requirements
-# - Debian/Ubuntu (apt-get available)
-# - signal-cli installed and linked to SIGNAL_NUMBER (notifications are skipped if absent)
-# - Run as root unless DRY_RUN=true
-#
-# Notes
-# - This script is intentionally apt-only; other package managers are not supported.
-# - Uses a lock to avoid concurrent runs.
+# auto-update.sh: Perform unattended system updates and send report via signal-cli
+# Supports apt only. Requires signal-cli installed and configured.
+# Reads settings from /etc/auto-update/config or ./config/auto-update.conf
 set -euo pipefail
 
 # Defaults
@@ -37,8 +13,7 @@ SIGNAL_NUMBER=""        # sender registered with signal-cli
 SIGNAL_RECIPIENTS=""    # comma-separated list of recipients
 DRY_RUN="false"
 REBOOT_IF_REQUIRED="true"
-SIGNAL_LINUXUSER=""
-DIST_UPGRADE="false"
+SIGNAL_LINUXUSER="it"
 
 # Load config if present
 for cfg in "${CONFIG_FILES[@]}"; do
@@ -50,12 +25,10 @@ done
 
 mkdir -p "$LOG_DIR"
 
-# Print to stdout and append to log file
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') - $*" | tee -a "$LOG_FILE"
 }
 
-# Send a message via signal-cli to all recipients (best-effort)
 send_signal() {
   local message="$1"
   if [[ -z "$SIGNAL_NUMBER" || -z "$SIGNAL_RECIPIENTS" ]]; then
@@ -66,17 +39,19 @@ send_signal() {
     log "signal-cli not found. Skipping notification."
     return 0
   fi
-  # Expand backslash escapes like \n in the message
   msg_expanded="$(printf '%b' "$message")"
 
   IFS=',' read -r -a recips <<< "$SIGNAL_RECIPIENTS"
   for r in "${recips[@]}"; do
-    # Use su -c to run as a Linux user that has working signal-cli config (if provided)
-    su -c "signal-cli -u '${SIGNAL_NUMBER}' send -m '${msg_expanded}' '${r}' || log 'Failed to send signal to ${r}'" $SIGNAL_LINUXUSER
+    sudo -u $SIGNAL_LINUXUSER signal-cli -u $SIGNAL_NUMBER send -m "$msg_expanded" $r
+    if [ $? -eq 0 ]; then
+        log "Signal message sent ${r}"
+    else
+        log "Failed to send signal to ${r}"
+    fi
   done
 }
 
-# Create and hold an exclusive, non-blocking lock (fd 9)
 acquire_lock() {
   exec 9>"$LOCK_FILE"
   if ! flock -n 9; then
@@ -85,7 +60,6 @@ acquire_lock() {
   fi
 }
 
-# Release the lock and remove the lock file
 release_lock() {
   flock -u 9 || true
   rm -f "$LOCK_FILE" || true
@@ -138,11 +112,7 @@ get_pending_updates() {
 mapfile -t PENDING_PKGS < <(get_pending_updates || true)
 if [[ "$DRY_RUN" == "true" ]]; then
   apt-get -s update | tee -a "$LOG_FILE"
-  if [[ "$DIST_UPGRADE" == "true" ]]; then
-    apt-get -s dist-upgrade -y | tee -a "$LOG_FILE"
-  else
-    apt-get -s upgrade -y | tee -a "$LOG_FILE"
-  fi
+  apt-get -s dist-upgrade -y | tee -a "$LOG_FILE"
   mapfile -t PENDING_PKGS < <(get_pending_updates || true)
   UPDATED="false"
 else
